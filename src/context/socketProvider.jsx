@@ -10,7 +10,7 @@ export const useSocket = () => {
 };
 
 export const SocketProvider = (props) => {
-  const socket = useMemo(() => io("vartalap-wine.vercel.app"), []);
+  const socket = useMemo(() => io("https://vartalap-egll.onrender.com"), []);
 
   return (
     <SocketContext.Provider value={socket}>
