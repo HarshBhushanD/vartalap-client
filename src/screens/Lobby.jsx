@@ -1,357 +1,246 @@
-import React, { useState, useCallback, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useCallback, useState } from "react";
+import ReactPlayer from "react-player";
 import { useSocket } from "../context/socketProvider";
+import peer from "../services/peer"
 
-const LobbyScreen = () => {
-  const [email, setEmail] = useState("");
-  const [room, setRoom] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-
+const RoomPage = () => {
   const socket = useSocket();
-  const navigate = useNavigate();
+  const [remoteSocketId, setRemoteSocketId] = useState(null);
+  const [myStream, setMyStream] = useState();
+  const [remoteStream, setRemoteStream] = useState();
 
-  const handleSubmitForm = useCallback(
-    (e) => {
-      e.preventDefault();
-      setIsLoading(true);
-      socket.emit("room:join", { email, room });
+  const handleUserJoined = useCallback(({ email, id }) => {
+    console.log(`Email ${email} joined room`);
+    setRemoteSocketId(id);
+  }, []);
+
+  const handleCallUser = useCallback(async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: true,
+    });
+    const offer = await peer.getOffer();
+    socket.emit("user:call", { to: remoteSocketId, offer });
+    setMyStream(stream);
+  }, [remoteSocketId, socket]);
+
+  const handleIncommingCall = useCallback(
+    async ({ from, offer }) => {
+      setRemoteSocketId(from);
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true,
+      });
+      setMyStream(stream);
+      console.log(`Incoming Call`, from, offer);
+      const ans = await peer.getAnswer(offer);
+      socket.emit("call:accepted", { to: from, ans });
     },
-    [email, room, socket]
+    [socket]
   );
 
-  const handleJoinRoom = useCallback(
-    (data) => {
-      const { email, room } = data;
-      setIsLoading(false);
-      navigate(`/room/${room}`);
+  const sendStreams = useCallback(() => {
+    for (const track of myStream.getTracks()) {
+      peer.peer.addTrack(track, myStream);
+    }
+  }, [myStream]);
+
+  const handleCallAccepted = useCallback(
+    ({ from, ans }) => {
+      peer.setLocalDescription(ans);
+      console.log("Call Accepted!");
+      sendStreams();
     },
-    [navigate]
+    [sendStreams]
   );
+
+  const handleNegoNeeded = useCallback(async () => {
+    const offer = await peer.getOffer();
+    socket.emit("peer:nego:needed", { offer, to: remoteSocketId });
+  }, [remoteSocketId, socket]);
 
   useEffect(() => {
-    socket.on("room:join", handleJoinRoom);
+    peer.peer.addEventListener("negotiationneeded", handleNegoNeeded);
     return () => {
-      socket.off("room:join", handleJoinRoom);
+      peer.peer.removeEventListener("negotiationneeded", handleNegoNeeded);
     };
-  }, [socket, handleJoinRoom]);
+  }, [handleNegoNeeded]);
+
+  const handleNegoNeedIncomming = useCallback(
+    async ({ from, offer }) => {
+      const ans = await peer.getAnswer(offer);
+      socket.emit("peer:nego:done", { to: from, ans });
+    },
+    [socket]
+  );
+
+  const handleNegoNeedFinal = useCallback(async ({ ans }) => {
+    await peer.setLocalDescription(ans);
+  }, []);
+
+  useEffect(() => {
+    peer.peer.addEventListener("track", async (ev) => {
+      const remoteStream = ev.streams;
+      console.log("GOT TRACKS!!");
+      setRemoteStream(remoteStream[0]);
+    });
+  }, []);
+
+  useEffect(() => {
+    socket.on("user:joined", handleUserJoined);
+    socket.on("incomming:call", handleIncommingCall);
+    socket.on("call:accepted", handleCallAccepted);
+    socket.on("peer:nego:needed", handleNegoNeedIncomming);
+    socket.on("peer:nego:final", handleNegoNeedFinal);
+
+    return () => {
+      socket.off("user:joined", handleUserJoined);
+      socket.off("incomming:call", handleIncommingCall);
+      socket.off("call:accepted", handleCallAccepted);
+      socket.off("peer:nego:needed", handleNegoNeedIncomming);
+      socket.off("peer:nego:final", handleNegoNeedFinal);
+    };
+  }, [
+    socket,
+    handleUserJoined,
+    handleIncommingCall,
+    handleCallAccepted,
+    handleNegoNeedIncomming,
+    handleNegoNeedFinal,
+  ]);
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
-      <div className="w-full max-w-md p-8 space-y-8 bg-white rounded-lg shadow-md">
-        <div className="text-center">
-          <h1 className="text-3xl font-extrabold text-gray-900">Join Meeting</h1>
-          <p className="mt-2 text-sm text-gray-600">
-            Enter your details to join a video call
-          </p>
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex flex-col">
+      {/* Header */}
+      <div className="bg-black/30 backdrop-blur-sm border-b border-white/10 px-6 py-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+            <h1 className="text-white font-semibold text-lg">Vartalap</h1>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className={`px-4 py-2 rounded-full text-sm font-medium ${
+              remoteSocketId 
+                ? "bg-green-500/20 text-green-400 border border-green-500/30" 
+                : "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+            }`}>
+              {remoteSocketId ? "Connected" : "Waiting for others..."}
+            </div>
+          </div>
         </div>
+      </div>
 
-        <form onSubmit={handleSubmitForm} className="mt-8 space-y-6">
-          <div className="space-y-4">
-            <div>
-              <label 
-                htmlFor="email" 
-                className="block text-sm font-medium text-gray-700"
-              >
-                Email Address
-              </label>
-              <input
-                type="email"
-                id="email"
-                required
-                placeholder="name@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label 
-                htmlFor="room" 
-                className="block text-sm font-medium text-gray-700"
-              >
-                Room Code
-              </label>
-              <input
-                type="text"
-                id="room"
-                required
-                placeholder="Enter room code"
-                value={room}
-                onChange={(e) => setRoom(e.target.value)}
-                className="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
-
-          <div>
-            <button
-              type="submit"
-              disabled={isLoading || !email || !room}
-              className={`w-full py-3 px-4 flex justify-center items-center text-white font-medium rounded-md ${
-                isLoading || !email || !room
-                  ? "bg-blue-300 cursor-not-allowed"
-                  : "bg-blue-600 hover:bg-blue-700"
-              } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500`}
-            >
-              {isLoading ? (
-                <span>Connecting...</span>
+      {/* Main Content */}
+      <div className="flex-1 p-4 md:p-6 overflow-auto">
+        <div className="max-w-7xl mx-auto">
+          {/* Video Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+            {/* Remote Stream */}
+            <div className="relative bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-white/10 aspect-video">
+              {remoteStream ? (
+                <div className="relative w-full h-full">
+                  <ReactPlayer
+                    playing
+                    muted={false}
+                    url={remoteStream}
+                    width="100%"
+                    height="100%"
+                    style={{ position: 'absolute', top: 0, left: 0 }}
+                  />
+                  <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-sm px-4 py-2 rounded-lg z-10">
+                    <p className="text-white text-sm font-medium">Remote Participant</p>
+                  </div>
+                </div>
               ) : (
-                <span>Join Meeting</span>
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="w-20 h-20 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                    </div>
+                    <p className="text-gray-400 text-sm">Waiting for participant to join...</p>
+                  </div>
+                </div>
               )}
-            </button>
+            </div>
+
+            {/* My Stream */}
+            <div className="relative bg-gray-800 rounded-2xl overflow-hidden shadow-2xl border border-white/10 aspect-video">
+              {myStream ? (
+                <div className="relative w-full h-full">
+                  <ReactPlayer
+                    playing
+                    muted
+                    url={myStream}
+                    width="100%"
+                    height="100%"
+                    style={{ position: 'absolute', top: 0, left: 0 }}
+                  />
+                  <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-sm px-4 py-2 rounded-lg z-10">
+                    <p className="text-white text-sm font-medium">You</p>
+                  </div>
+                  <div className="absolute top-4 right-4 bg-red-500/80 backdrop-blur-sm px-3 py-1 rounded-lg z-10">
+                    <p className="text-white text-xs font-medium">Muted</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="w-20 h-20 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-4">
+                      <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                      </svg>
+                    </div>
+                    <p className="text-gray-400 text-sm">Your video will appear here</p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </form>
+        </div>
+      </div>
+
+      {/* Control Bar */}
+      <div className="bg-black/30 backdrop-blur-sm border-t border-white/10 px-6 py-4">
+        <div className="max-w-7xl mx-auto flex items-center justify-center space-x-4">
+          {/* Call Button */}
+          {remoteSocketId && !myStream && (
+            <button
+              onClick={handleCallUser}
+              className="flex items-center space-x-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white font-semibold px-8 py-3 rounded-xl shadow-lg transform hover:scale-105 active:scale-95 transition-all duration-200"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+              </svg>
+              <span>Start Call</span>
+            </button>
+          )}
+
+          {/* Send Stream Button */}
+          {myStream && (
+            <button
+              onClick={sendStreams}
+              className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-xl shadow-lg transform hover:scale-105 active:scale-95 transition-all duration-200"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              <span>Share Screen</span>
+            </button>
+          )}
+
+          {/* Status Indicator */}
+          {!remoteSocketId && (
+            <div className="flex items-center space-x-2 text-gray-400">
+              <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse"></div>
+              <span className="text-sm">Waiting for others to join...</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 };
 
-export default LobbyScreen;
-
-
-// import React, { useState, useCallback, useEffect } from "react";
-// import { useNavigate } from "react-router-dom";
-// import { useSocket } from "../context/socketProvider";
-
-// const LobbyScreen = () => {
-//   const [email, setEmail] = useState("");
-//   const [room, setRoom] = useState("");
-
-//   const socket = useSocket();
-//   const navigate = useNavigate();
-
-//   const handleSubmitForm = useCallback(
-//     (e) => {
-//       e.preventDefault();
-//       socket.emit("room:join", { email, room });
-//     },
-//     [email, room, socket]
-//   );
-
-//   const handleJoinRoom = useCallback(
-//     (data) => {
-//       const { email, room } = data;
-//       navigate(`/room/${room}`);
-//     },
-//     [navigate]
-//   );
-
-//   useEffect(() => {
-//     socket.on("room:join", handleJoinRoom);
-//     return () => {
-//       socket.off("room:join", handleJoinRoom);
-//     };
-//   }, [socket, handleJoinRoom]);
-
-//   return (
-//     <div>
-//       <h1>Lobby</h1>
-//       <form onSubmit={handleSubmitForm}>
-//         <label htmlFor="email">Email ID</label>
-//         <input
-//           type="email"
-//           id="email"
-//           value={email}
-//           onChange={(e) => setEmail(e.target.value)}
-//         />
-//         <br />
-//         <label htmlFor="room">Room Number</label>
-//         <input
-//           type="text"
-//           id="room"
-//           value={room}
-//           onChange={(e) => setRoom(e.target.value)}
-//         />
-//         <br />
-//         <button>Join</button>
-//       </form>
-//     </div>
-//   );
-// };
-
-// export default LobbyScreen;
-// import React, { useState, useCallback, useEffect } from "react";
-// import { useNavigate } from "react-router-dom";
-// import { useSocket } from "../context/socketProvider";
-
-// const LobbyScreen = () => {
-//   const [email, setEmail] = useState("");
-//   const [room, setRoom] = useState("");
-  
-//   const socket = useSocket();
-//   const navigate = useNavigate();
-  
-//   const handleSubmitForm = useCallback(
-//     (e) => {
-//       e.preventDefault();
-//       socket.emit("room:join", { email, room });
-//     },
-//     [email, room, socket]
-//   );
-  
-//   const handleJoinRoom = useCallback(
-//     (data) => {
-//       const { email, room } = data;
-//       navigate(`/room/${room}`);
-//     },
-//     [navigate]
-//   );
-  
-//   useEffect(() => {
-//     socket.on("room:join", handleJoinRoom);
-//     return () => {
-//       socket.off("room:join", handleJoinRoom);
-//     };
-//   }, [socket, handleJoinRoom]);
-
-//   // Inline styles object
-//   const styles = {
-//     container: {
-//       minHeight: '100vh',
-//       display: 'flex',
-//       justifyContent: 'center',
-//       alignItems: 'center',
-//       padding: '20px',
-//       background: 'linear-gradient(135deg, #f0f4ff 0%, #e6eeff 100%)',
-//       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif'
-//     },
-//     card: {
-//       background: 'white',
-//       borderRadius: '12px',
-//       boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
-//       padding: '32px',
-//       width: '100%',
-//       maxWidth: '420px'
-//     },
-//     title: {
-//       fontSize: '28px',
-//       fontWeight: 700,
-//       color: '#4a56e2',
-//       textAlign: 'center',
-//       marginBottom: '24px'
-//     },
-//     form: {
-//       display: 'flex',
-//       flexDirection: 'column',
-//       gap: '24px'
-//     },
-//     formGroup: {
-//       display: 'flex',
-//       flexDirection: 'column',
-//       gap: '8px'
-//     },
-//     label: {
-//       fontSize: '14px',
-//       fontWeight: 500,
-//       color: '#333',
-//       marginLeft: '4px' // Adding left margin to align with input padding
-//     },
-//     input: {
-//       width: '100%',
-//       boxSizing: 'border-box', // Ensures padding doesn't affect overall width
-//       padding: '12px 16px',
-//       borderRadius: '8px',
-//       border: '1px solid #ddd',
-//       fontSize: '16px',
-//       transition: 'all 0.2s ease',
-//       outline: 'none'
-//     },
-//     focusedInput: {
-//       borderColor: '#4a56e2',
-//       boxShadow: '0 0 0 3px rgba(74, 86, 226, 0.15)'
-//     },
-//     button: {
-//       backgroundColor: '#4a56e2',
-//       color: 'white',
-//       fontSize: '16px',
-//       fontWeight: 500,
-//       padding: '14px',
-//       border: 'none',
-//       borderRadius: '8px',
-//       cursor: 'pointer',
-//       transition: 'all 0.2s ease'
-//     },
-//     termsText: {
-//       fontSize: '12px',
-//       color: '#777',
-//       textAlign: 'center',
-//       marginTop: '16px'
-//     }
-//   };
-  
-//   // Focus state handlers
-//   const [emailFocused, setEmailFocused] = useState(false);
-//   const [roomFocused, setRoomFocused] = useState(false);
-  
-//   return (
-//     <div style={styles.container}>
-//       <div style={styles.card}>
-//         <h1 className="text-3xl">Join a Meeting</h1>
-        
-//         <form onSubmit={handleSubmitForm} style={styles.form}>
-//           <div style={styles.formGroup}>
-//             <label htmlFor="email" style={styles.label}>
-//               Email Address
-//             </label>
-//             <input
-//               type="email"
-//               id="email"
-//               placeholder="Enter your email"
-//               value={email}
-//               onChange={(e) => setEmail(e.target.value)}
-//               style={{
-//                 ...styles.input,
-//                 ...(emailFocused ? styles.focusedInput : {})
-//               }}
-//               onFocus={() => setEmailFocused(true)}
-//               onBlur={() => setEmailFocused(false)}
-//               required
-//             />
-//           </div>
-          
-//           <div style={styles.formGroup}>
-//             <label htmlFor="room" style={styles.label}>
-//               Room Code
-//             </label>
-//             <input
-//               type="text"
-//               id="room"
-//               placeholder="Enter room code"
-//               value={room}
-//               onChange={(e) => setRoom(e.target.value)}
-//               style={{
-//                 ...styles.input,
-//                 ...(roomFocused ? styles.focusedInput : {})
-//               }}
-//               onFocus={() => setRoomFocused(true)}
-//               onBlur={() => setRoomFocused(false)}
-//               required
-//             />
-//           </div>
-          
-//           <button
-//             type="submit"
-//             style={styles.button}
-//             onMouseOver={(e) => {
-//               e.target.style.backgroundColor = '#3a46d2';
-//               e.target.style.transform = 'translateY(-2px)';
-//             }}
-//             onMouseOut={(e) => {
-//               e.target.style.backgroundColor = '#4a56e2';
-//               e.target.style.transform = 'translateY(0)';
-//             }}
-//           >
-//             Join Room
-//           </button>
-          
-//           <p style={styles.termsText}>
-//             By joining, you agree to our Terms of Service and Privacy Policy.
-//           </p>
-//         </form>
-//       </div>
-//     </div>
-//   );
-// };
-
-// export default LobbyScreen;
+export default RoomPage;
