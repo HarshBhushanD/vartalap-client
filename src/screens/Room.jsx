@@ -84,6 +84,20 @@ const RoomPage = () => {
     await peer.setLocalDescription(ans);
   }, []);
 
+  const endCall = useCallback(() => {
+    if (myStream) {
+      myStream.getTracks().forEach((track) => track.stop());
+    }
+    setMyStream(null);
+    setRemoteStream(null);
+    setIsMicOn(true);
+    setIsCameraOn(true);
+
+    if (remoteSocketId) {
+      socket.emit("call:end", { to: remoteSocketId });
+    }
+  }, [myStream, remoteSocketId, socket]);
+
   const toggleMic = useCallback(() => {
     if (myStream) {
       const audioTracks = myStream.getAudioTracks();
@@ -126,12 +140,23 @@ const RoomPage = () => {
     }
   }, [myStream]);
 
+  const handleCallEnded = useCallback(() => {
+    if (myStream) {
+      myStream.getTracks().forEach((track) => track.stop());
+    }
+    setMyStream(null);
+    setRemoteStream(null);
+    setIsMicOn(true);
+    setIsCameraOn(true);
+  }, [myStream]);
+
   useEffect(() => {
     socket.on("user:joined", handleUserJoined);
     socket.on("incomming:call", handleIncommingCall);
     socket.on("call:accepted", handleCallAccepted);
     socket.on("peer:nego:needed", handleNegoNeedIncomming);
     socket.on("peer:nego:final", handleNegoNeedFinal);
+    socket.on("call:end", handleCallEnded);
 
     return () => {
       socket.off("user:joined", handleUserJoined);
@@ -139,6 +164,7 @@ const RoomPage = () => {
       socket.off("call:accepted", handleCallAccepted);
       socket.off("peer:nego:needed", handleNegoNeedIncomming);
       socket.off("peer:nego:final", handleNegoNeedFinal);
+      socket.off("call:end", handleCallEnded);
     };
   }, [
     socket,
@@ -147,6 +173,7 @@ const RoomPage = () => {
     handleCallAccepted,
     handleNegoNeedIncomming,
     handleNegoNeedFinal,
+    handleCallEnded,
   ]);
 
   return (
@@ -219,8 +246,8 @@ const RoomPage = () => {
             <div className="relative bg-white rounded-2xl overflow-hidden shadow-xl border-2 border-gray-100 aspect-video">
               {myStream ? (
                 <div className="relative w-full h-full">
-                  <ReactPlayer
-                    playing
+          <ReactPlayer
+            playing
                     muted={!isMicOn}
                     url={myStream}
                     width="100%"
@@ -349,6 +376,18 @@ const RoomPage = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
                   </svg>
                 )}
+              </button>
+
+              {/* End Call */}
+              <button
+                onClick={endCall}
+                className="flex items-center justify-center px-6 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shadow-lg shadow-red-400/40 transform hover:scale-105 active:scale-95 transition-all duration-200"
+                title="End call"
+              >
+                <svg className="w-6 h-6 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}  />
+                </svg>
+                <span>End Call</span>
               </button>
 
               {/* Share Stream Button */}
