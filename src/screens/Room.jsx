@@ -331,10 +331,10 @@ const RoomPage = () => {
             </div>
           )}
 
-          {/* Media Controls */}
+          
           {myStream && (
             <div className="flex items-center justify-center space-x-4">
-              {/* Mic Toggle */}
+             
               <button
                 onClick={toggleMic}
                 className={`flex items-center justify-center w-14 h-14 rounded-full font-bold shadow-lg transform hover:scale-110 active:scale-95 transition-all duration-200 ${
@@ -356,7 +356,6 @@ const RoomPage = () => {
                 )}
               </button>
 
-              {/* Camera Toggle */}
               <button
                 onClick={toggleCamera}
                 className={`flex items-center justify-center w-14 h-14 rounded-full font-bold shadow-lg transform hover:scale-110 active:scale-95 transition-all duration-200 ${
@@ -378,7 +377,6 @@ const RoomPage = () => {
                 )}
               </button>
 
-              {/* End Call */}
               <button
                 onClick={endCall}
                 className="flex items-center justify-center px-6 py-3 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold shadow-lg shadow-red-400/40 transform hover:scale-105 active:scale-95 transition-all duration-200"
@@ -390,7 +388,6 @@ const RoomPage = () => {
                 <span>End Call</span>
               </button>
 
-              {/* Share Stream Button */}
               <button
                 onClick={sendStreams}
                 className="flex items-center space-x-2 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 text-white font-bold px-6 py-3 rounded-xl shadow-lg shadow-indigo-500/30 transform hover:scale-105 active:scale-95 transition-all duration-200"
